@@ -8,6 +8,9 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     MY_EMAIL: str = ""
     MY_EMAIL_APP_PASSWORD: str = ""
+    # Optional: Webshare rotating proxies for YouTube transcript fetching
+    WEBSHARE_USERNAME: str = ""
+    WEBSHARE_PASSWORD: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

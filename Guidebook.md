@@ -1,7 +1,7 @@
 # AI News Aggregator — Project Guidebook
 
 > **Living document.** Updated at the end of every completed stage.
-> Last updated: Stage 2 complete.
+> Last updated: Stage 3 complete.
 
 ---
 
@@ -285,30 +285,94 @@ Calls `Base.metadata.create_all()` — idempotent, safe to re-run.
 
 ---
 
-## 9. Stage 3 — Scrapers & Enrichment *(not yet built)*
+## 9. Stage 3 — Scrapers & Enrichment
 
-### Planned files
+**Status: Complete**
 
-**`app/scrapers/base.py`** — `BaseScraper`
-- Common RSS parsing using `requests` + `xml.etree.ElementTree`
-- Shared date normalization (all dates stored as timezone-aware UTC)
-- Abstract `scrape()` method
+### What was done
 
-**`app/scrapers/youtube.py`** — `YouTubeScraper`
-- Reads YouTube RSS feed: `https://www.youtube.com/feeds/videos.xml?channel_id=ID`
-- Filters out Shorts (URL contains `/shorts/`)
-- Fetches transcripts via `youtube-transcript-api`
-- Supports Webshare rotating proxies (optional env var)
-- On failure: marks `transcript_status = 'unavailable'`, continues
+---
 
-**`app/scrapers/openai_scraper.py`** — `OpenAIScraper`
-- Parses the official OpenAI blog RSS feed
-- Stores `guid`, `title`, `url`, `description`, `published_at`
+#### `app/scrapers/base.py`
 
-**`app/scrapers/anthropic_scraper.py`** — `AnthropicScraper`
-- Aggregates three feeds: news, engineering, research
-- After saving metadata, fetches full article HTML and converts to Markdown via `html2text`
-- Stores result in `markdown_content`
+Shared primitives imported by all scrapers.
+
+| Export | Description |
+|---|---|
+| `VideoItem` | Pydantic model — video_id, title, url, published_at |
+| `ArticleItem` | Pydantic model — guid, title, url, description (opt), published_at |
+| `fetch_feed(url)` | `requests.get` → `ET.fromstring` root element (no lxml needed) |
+| `parse_date(raw)` | RFC 2822 → ISO 8601 → now(UTC) cascade; always returns tz-aware UTC |
+| `HEADERS` | Browser-like User-Agent used by all HTTP calls |
+| `BaseScraper` | Abstract base; enforces `scrape_metadata() -> list` |
+
+**RSS parsing**: uses Python's built-in `xml.etree.ElementTree` — lxml is not required.
+
+---
+
+#### `app/scrapers/youtube.py`
+
+`YouTubeScraper(channel_id, channel_name)`
+
+| Method | Description |
+|---|---|
+| `scrape_metadata()` | Parses Atom feed (`YT_NS` namespaces), skips `/shorts/`, returns `VideoItem` list |
+| `fetch_transcript(video_id)` | Returns `(text, "done")` or `(None, "unavailable")` |
+| `_get_api()` | Lazy-init `YouTubeTranscriptApi`; uses `WebshareProxyConfig` if env vars set |
+
+**Transcript error handling**: `NoTranscriptFound`, `TranscriptsDisabled`, `IpBlocked`, `RequestBlocked`, `CouldNotRetrieveTranscript` and any `Exception` all resolve to `"unavailable"` — the pipeline never retries a broken video.
+
+**Proxy**: `WEBSHARE_USERNAME` / `WEBSHARE_PASSWORD` in `.env` enable the Webshare rotating proxy. If absent, no proxy is used. The API instance is lazy and reused across calls.
+
+---
+
+#### `app/scrapers/ai_news.py`
+
+**`fetch_article_markdown(url)`** — standalone utility:
+1. `requests.get(url)` with browser headers
+2. Strip `<script>`, `<style>`, `<nav>`, `<footer>`, `<header>`, `<aside>`, `<noscript>`
+3. Find article body: `<article>` → `<main>` → `.content` class → `<body>`
+4. `html2text` with `ignore_images=True`, `body_width=0` (no hard wrapping)
+5. Returns `None` on network error or Cloudflare block (logs a warning)
+
+**`OpenAIScraper`** — RSS 2.0 from `https://openai.com/news/rss.xml`
+- Falls back to link URL when `<guid>` is missing
+
+**`AnthropicScraper`** — aggregates three feeds:
+- `https://www.anthropic.com/rss/news.xml`
+- `https://www.anthropic.com/rss/engineering.xml`
+- `https://www.anthropic.com/rss/research.xml`
+- Deduplicates by GUID in Python after collecting all feeds
+- One feed failing does not stop the others
+
+---
+
+#### `app/services/scrapers.py`
+
+`ScraperService(repo, youtube_channels=None)`
+
+**`run_metadata() -> dict`**
+- Calls all scrapers, saves new rows via `repo.add_*()`, commits once at the end
+- Returns `{"youtube": N, "openai": N, "anthropic": N}` (new rows only)
+
+**`run_enrichment() -> dict`**
+- **Transcripts**: queries `get_pending_transcripts()`, calls `scraper.fetch_transcript()`, calls `repo.update_transcript()`, commits per video
+- **Markdown**: queries `get_anthropic_articles_pending_markdown()`, calls `fetch_article_markdown()`, calls `repo.update_anthropic_markdown()`, commits per article
+- Each item commits individually — one failure rolls back only that item
+- Returns `{"transcripts_done", "transcripts_unavailable", "markdown_done", "markdown_failed"}`
+
+**`DEFAULT_YOUTUBE_CHANNELS`** — list of `(channel_id, name)` tuples for OpenAI, Anthropic, Google DeepMind. Update this constant to add/remove channels.
+
+---
+
+#### Repository additions (Stage 3)
+
+- `get_anthropic_articles_pending_markdown()` — added to `repository.py`: returns `AnthropicArticle` rows where `markdown_content IS NULL`
+
+#### Settings additions (Stage 3)
+
+- `WEBSHARE_USERNAME: str = ""` and `WEBSHARE_PASSWORD: str = ""` added to `Settings` in `connection.py`
+- Both added to `.env.template` under a `# Webshare` section
 
 ---
 

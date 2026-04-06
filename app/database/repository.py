@@ -112,6 +112,11 @@ class Repository:
             article.markdown_content = markdown_content
             self.session.flush()
 
+    def get_anthropic_articles_pending_markdown(self) -> list[AnthropicArticle]:
+        """Articles whose HTML has not yet been converted to Markdown."""
+        stmt = select(AnthropicArticle).where(AnthropicArticle.markdown_content.is_(None))
+        return list(self.session.execute(stmt).scalars())
+
     def get_anthropic_articles_without_digests(self) -> list[AnthropicArticle]:
         stmt = (
             select(AnthropicArticle)
