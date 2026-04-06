@@ -1,6 +1,7 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
+
 
 class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/ai_news_aggregator"
@@ -10,14 +11,20 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
+
 settings = Settings()
 
-engine = create_engine(settings.DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+engine = create_engine(
+    settings.DATABASE_URL,
+    pool_pre_ping=True,  # drop stale connections before use
+)
+SessionLocal: sessionmaker[Session] = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=engine,
+)
 
-def get_db_session():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+
+def get_db_session() -> Session:
+    """Context-manager-style session factory for use outside request cycles."""
+    return SessionLocal()

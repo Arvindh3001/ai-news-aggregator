@@ -1,3 +1,7 @@
+# OS files
+.DS_Store
+Thumbs.db
+
 # Python-generated files
 __pycache__/
 *.py[oc]
@@ -5,6 +9,24 @@ build/
 dist/
 wheels/
 *.egg-info
+.pytest_cache/
+.mypy_cache/
 
 # Virtual environments
 .venv
+venv/
+env/
+
+# Environment variables
+.env
+.env.local
+
+# IDEs
+.vscode/
+.idea/
+
+# Claude / Assistant files
+.claude/
+CLAUDE.md
+scripts/
+tmp/
