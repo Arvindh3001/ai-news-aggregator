@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cmd.exe /c \"pip install uv && uv --version\")",
+      "Bash(/c/Users/I768951/AppData/Local/Programs/Python/Python314/Scripts/uv.exe --version)"
+    ]
+  }
+}
