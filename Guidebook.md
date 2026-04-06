@@ -1,7 +1,7 @@
 # AI News Aggregator — Project Guidebook
 
 > **Living document.** Updated at the end of every completed stage.
-> Last updated: Stage 3 complete.
+> Last updated: Stage 4 complete.
 
 ---
 
@@ -376,39 +376,89 @@ Shared primitives imported by all scrapers.
 
 ---
 
-## 10. Stage 4 — AI Agent Architecture *(not yet built)*
+## 10. Stage 4 — AI Agent Architecture
 
-### Planned files
+**Status: Complete**
 
-**`app/agents/base.py`** — `BaseAgent`
-- Initializes the OpenAI client once (`openai.OpenAI(api_key=settings.OPENAI_API_KEY)`)
-- Provides a generic `call(prompt, response_model)` method using Structured Outputs
-- All agents inherit from this
+### What was done
 
-**`app/agents/digest.py`** — `DigestAgent`
-- Input: article text or YouTube transcript (as string)
-- Output (Pydantic model): `digest_title: str`, `digest_summary: str` (2–3 sentences)
-- Used per-article after enrichment
+---
 
-**`app/agents/curator.py`** — `CuratorAgent`
-- Input: list of `Digest` rows + `user_profile.json`
-- Output (Pydantic model): list of `{digest_id, score, reasoning}`
-- Updates `score` on each digest row
+#### `app/agents/base_agent.py` — `BaseAgent`
 
-**`app/agents/email_agent.py`** — `EmailAgent`
-- Input: top-N ranked `Digest` rows
-- Output (Pydantic model): `greeting: str`, `intro: str`, `html_body: str`
-- The HTML body contains all article sections, formatted for email
+Single shared primitive used by all agents.
 
-### `user_profile.json` (to be created in root)
-```json
-{
-  "name": "...",
-  "interests": ["LLMs", "AI safety", "multimodal models", "..."],
-  "preferred_depth": "technical",
-  "preferred_length": "concise"
-}
+```python
+BaseAgent._parse(instructions, user_input, response_model) -> T
 ```
+
+- Uses `client.responses.parse()` — the OpenAI Responses API (openai >= 2.0)
+- `instructions` = system turn, `input` = user turn, `text_format` = Pydantic model
+- `.output_parsed` returns the validated Pydantic instance directly — no JSON parsing
+- Raises `ValueError` explicitly if `output_parsed` is `None` (guards schema mistakes)
+- Default model: `gpt-4o-mini` (128k context, fast, cost-effective for digest workloads)
+
+---
+
+#### `app/agents/digest_agent.py` — `DigestAgent`
+
+| Pydantic model | Fields |
+|---|---|
+| `DigestItem` | `title` (punchy headline), `summary` (2-3 sentences, technical), `category` (one word) |
+
+**`DigestAgent.generate(article_title, content, source_type) -> DigestItem`**
+
+- Truncates content at `MAX_CONTENT_CHARS = 80_000` (~20k tokens) — covers ~30–40 min of transcript
+- Appends `[Content truncated...]` marker when truncated so the model knows
+- System prompt enforces: specific model/benchmark names, no marketing language, lead with the most interesting technical finding
+- Categories: `research | product | infrastructure | safety | tooling | policy | tutorial | other`
+
+---
+
+#### `app/agents/curator_agent.py` — `CuratorAgent`
+
+| Pydantic model | Fields |
+|---|---|
+| `UserProfile` | `name`, `background`, `interests: list[str]`, `preferred_depth` |
+| `CandidateDigest` | `digest_id`, `title`, `summary`, `category` |
+| `CuratedItem` | `digest_id`, `score` (0.0–1.0), `reasoning` (one sentence) |
+| `CuratedList` | `items: list[CuratedItem]` — wraps the full scored list |
+
+**`CuratorAgent.curate(candidates, profile) -> list[CuratedItem]`**
+
+- Builds the system prompt dynamically from the user profile (name, background, interests, preferred_depth)
+- Returns items sorted descending by score — caller takes the top-N
+- Scoring rubric embedded in prompt: 1.0 = core interest + technical depth, 0.0 = off-topic
+
+**`load_user_profile(path) -> UserProfile`** — reads and validates `profiles/user_profile.json`
+
+---
+
+#### `profiles/user_profile.json`
+
+Arvindh's profile — 8 interests covering LLM inference, fine-tuning, agent frameworks, OpenAI/Anthropic releases, evals, safety, MLOps, and multimodal models. Edit this file to retarget the newsletter.
+
+---
+
+#### `app/services/digests.py` — `DigestService`
+
+**`run_generation() -> dict`**
+- Queries `get_videos_without_digests()`, `get_openai_articles_without_digests()`, `get_anthropic_articles_without_digests()`
+- Skips items with content shorter than `_MIN_CONTENT_CHARS = 50`
+- Calls `DigestAgent.generate()` per item, saves via `repo.add_digest()`, commits per item
+- Returns `{"youtube": N, "openai": N, "anthropic": N, "failed": N}`
+
+**`run_curation(profile, hours=24, limit=20) -> list[CuratedItem]`**
+- Fetches up to `limit` unsent digests from the last `hours` hours
+- Calls `CuratorAgent.curate()` with all candidates at once
+- Writes `.score` back to each `Digest` row in the DB
+- Returns ranked `CuratedItem` list ready for `EmailAgent`
+
+---
+
+#### DB model change (Stage 4)
+
+`Digest` model gained a `category` column (`VARCHAR(50)`, default `"other"`) — populated from `DigestItem.category` at generation time and passed to the curator for scoring context.
 
 ---
 

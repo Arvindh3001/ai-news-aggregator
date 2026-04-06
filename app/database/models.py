@@ -64,6 +64,8 @@ class Digest(Base):
     article_type: Mapped[str] = mapped_column(String(20), nullable=False)
     digest_title: Mapped[str] = mapped_column(String(500), nullable=False)
     digest_summary: Mapped[str] = mapped_column(Text, nullable=False)
+    # research | product | infrastructure | safety | tooling | policy | tutorial | other
+    category: Mapped[str] = mapped_column(String(50), nullable=False, default="other")
     score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(

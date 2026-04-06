@@ -1,0 +1,15 @@
+{
+  "name": "Arvindh",
+  "background": "AI/ML engineer with a strong focus on LLM infrastructure, model serving, and developer tooling. Comfortable reading research papers and system design write-ups.",
+  "interests": [
+    "LLM inference and serving (vLLM, TensorRT-LLM, SGLang)",
+    "Foundation model training and fine-tuning techniques",
+    "AI agent frameworks and orchestration",
+    "OpenAI and Anthropic product releases",
+    "Evaluation and benchmarking of language models",
+    "AI safety and alignment research",
+    "MLOps and AI infrastructure at scale",
+    "Multimodal models (vision, audio, video)"
+  ],
+  "preferred_depth": "technical"
+}
