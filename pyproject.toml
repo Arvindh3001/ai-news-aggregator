@@ -5,6 +5,7 @@ description = "Daily personalized AI news digest via email"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "anthropic>=0.89.0",
     "beautifulsoup4>=4.14.3",
     "html2text>=2025.4.15",
     "openai>=2.30.0",

@@ -154,6 +154,27 @@ class Repository:
         )
         return list(self.session.execute(stmt).scalars())
 
+    def get_digests_by_ids(self, digest_ids: list[int]) -> list[Digest]:
+        """Fetch Digest rows for a list of IDs, preserving no particular order."""
+        stmt = select(Digest).where(Digest.id.in_(digest_ids))
+        return list(self.session.execute(stmt).scalars())
+
+    def get_source_url(self, article_id: int, article_type: str) -> str:
+        """Return the source URL for a digest by looking up the originating table."""
+        if article_type == "youtube":
+            row = self.session.execute(
+                select(YouTubeVideo).where(YouTubeVideo.id == article_id)
+            ).scalar_one_or_none()
+        elif article_type == "openai":
+            row = self.session.execute(
+                select(OpenAIArticle).where(OpenAIArticle.id == article_id)
+            ).scalar_one_or_none()
+        else:
+            row = self.session.execute(
+                select(AnthropicArticle).where(AnthropicArticle.id == article_id)
+            ).scalar_one_or_none()
+        return row.url if row else ""
+
     def mark_digests_sent(self, digest_ids: list[int]) -> None:
         """Bulk-mark a list of digest IDs as sent."""
         now = datetime.now(timezone.utc)

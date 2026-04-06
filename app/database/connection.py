@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session, sessionmaker
 class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/ai_news_aggregator"
     OPENAI_API_KEY: str = ""
+    ANTHROPIC_API_KEY: str = ""
     MY_EMAIL: str = ""
     MY_EMAIL_APP_PASSWORD: str = ""
     # Optional: Webshare rotating proxies for YouTube transcript fetching

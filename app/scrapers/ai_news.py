@@ -142,11 +142,14 @@ class OpenAIScraper(BaseScraper):
 # Anthropic scraper
 # ------------------------------------------------------------------
 
-# Anthropic community/unofficial RSS feeds — one per content category
+# Anthropic does NOT publish official RSS feeds.
+# We use RSS.app-generated feeds that mirror the public Anthropic blog pages.
+# If these break, generate new ones at https://rss.app for:
+#   https://www.anthropic.com/news
+#   https://www.anthropic.com/research
 _ANTHROPIC_FEEDS: dict[str, str] = {
-    "news":        "https://www.anthropic.com/rss/news.xml",
-    "engineering": "https://www.anthropic.com/rss/engineering.xml",
-    "research":    "https://www.anthropic.com/rss/research.xml",
+    "news":     "https://rss.app/feeds/tvqbLl0ILhGGkHoO.xml",
+    "research": "https://rss.app/feeds/WfZp0mLRvWvLgRXj.xml",
 }
 
 

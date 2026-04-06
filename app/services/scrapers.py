@@ -5,6 +5,8 @@ Stage A (run_metadata):
   - Iterates all registered scrapers.
   - Saves new video/article rows to the DB via Repository.
   - Already-seen items are silently skipped (deduplication in Repository).
+  - Only items published within `cutoff_hours` (default 72h) are stored.
+    This prevents thousands of historical articles being processed on first run.
 
 Stage B (run_enrichment):
   - Fetches transcripts for YouTube videos still in status='pending'.
@@ -18,6 +20,7 @@ Usage (from pipeline.py):
     service.run_enrichment()
 """
 import logging
+from datetime import datetime, timedelta, timezone
 
 from app.database.repository import Repository
 from app.scrapers.ai_news import AnthropicScraper, OpenAIScraper, fetch_article_markdown
@@ -34,8 +37,9 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_YOUTUBE_CHANNELS: list[tuple[str, str]] = [
     # (channel_id, display_name)
+    # Verify IDs at: https://www.youtube.com/@<handle>/about — view page source, search "channelId"
     ("UCXZCJLdBC09xxGZ6gcdrc6A", "OpenAI"),
-    ("UCwLpdrzHC7CnpvRJJ3w8FqA", "Anthropic"),
+    ("UCrDwWp7EBBv4NwvScIpBDOA", "Anthropic"),   # Fixed: was UCwLpdrzHC7CnpvRJJ3w8FqA (404)
     ("UCP7jMXSY2xbc3KCAE0MHQ-A", "Google DeepMind"),
 ]
 
@@ -54,8 +58,10 @@ class ScraperService:
         self,
         repo: Repository,
         youtube_channels: list[tuple[str, str]] | None = None,
+        cutoff_hours: int = 72,
     ) -> None:
         self._repo = repo
+        self._cutoff = datetime.now(timezone.utc) - timedelta(hours=cutoff_hours)
 
         channels = youtube_channels or DEFAULT_YOUTUBE_CHANNELS
         self._yt_scrapers: list[YouTubeScraper] = [
@@ -81,6 +87,8 @@ class ScraperService:
         for scraper in self._yt_scrapers:
             items: list[VideoItem] = scraper.scrape_metadata()
             for item in items:
+                if item.published_at < self._cutoff:
+                    continue  # skip articles older than the cutoff window
                 _, created = self._repo.add_youtube_video(
                     {
                         "video_id": item.video_id,
@@ -96,6 +104,8 @@ class ScraperService:
         # --- OpenAI ---
         for item in self._openai_scraper.scrape_metadata():
             item: ArticleItem
+            if item.published_at < self._cutoff:
+                continue  # skip old articles — prevents swamping DB on first run
             _, created = self._repo.add_openai_article(
                 {
                     "guid": item.guid,
@@ -111,6 +121,8 @@ class ScraperService:
         # --- Anthropic ---
         for item in self._anthropic_scraper.scrape_metadata():
             item: ArticleItem
+            if item.published_at < self._cutoff:
+                continue
             _, created = self._repo.add_anthropic_article(
                 {
                     "guid": item.guid,

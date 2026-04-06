@@ -1,7 +1,7 @@
 # AI News Aggregator — Project Guidebook
 
 > **Living document.** Updated at the end of every completed stage.
-> Last updated: Stage 4 complete.
+> Last updated: Stage 5 complete.
 
 ---
 
@@ -462,55 +462,81 @@ Arvindh's profile — 8 interests covering LLM inference, fine-tuning, agent fra
 
 ---
 
-## 11. Stage 5 — Pipeline Orchestration & Email Delivery *(not yet built)*
+## 11. Stage 5 — Pipeline Orchestration & Email Delivery
 
-### Planned file: `app/services/pipeline.py`
+**Status: Complete**
 
-The `run_pipeline()` function is the only thing `main.py` calls.
+### What was done
 
-**Execution order:**
+---
 
-```
-Step 1 — Scrape metadata
-  └─ YouTube: save video rows (transcript_status=pending)
-  └─ OpenAI: save article rows
-  └─ Anthropic: save article rows
+#### `app/agents/email_agent.py` — `EmailAgent`
 
-Step 2 — Enrich
-  └─ Fetch transcripts for all pending YouTube videos
-  └─ Fetch + convert Anthropic article HTML → Markdown
+| Pydantic model | Fields |
+|---|---|
+| `EmailContent` | `subject` (≤70 chars), `greeting` (2-3 sentences), `sign_off` (1 sentence) |
 
-Step 3 — Digest
-  └─ For each video with status=done and no digest → DigestAgent
-  └─ For each OpenAI article with no digest → DigestAgent
-  └─ For each Anthropic article with no digest → DigestAgent
+**`EmailAgent.generate(reader_name, reader_background, top_articles) -> EmailContent`**
 
-Step 4 — Curate
-  └─ CuratorAgent ranks all unsent digests from last 24h
-  └─ Updates score on each Digest row
+- Takes the ranked article list and profile info; returns only the prose pieces
+- HTML assembly is done by `EmailService`, not the agent — AI-generated HTML is fragile
+- Subject prompt explicitly forbids clickbait and emoji; demands a specific topic mention
 
-Step 5 — Compose email
-  └─ EmailAgent generates HTML from top-N digests
+---
 
-Step 6 — Send
-  └─ smtplib sends via Gmail SMTP (TLS, port 587)
+#### `app/services/email.py` — `EmailService`
 
-Step 7 — Mark sent
-  └─ repo.mark_digests_sent([ids])
-  └─ repo.commit()
-```
+**`EmailArticle`** dataclass: `title`, `summary`, `category`, `source_url`, `score`, `article_type`
 
-**Gmail SMTP snippet (for reference):**
-```python
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
+**`build_html(content, articles, reader_name) -> str`**
+- Fully inline-CSS responsive HTML — works in Gmail and Outlook
+- Category badges with per-category colors (6 colors + fallback)
+- Article cards with title, source label, badge, summary, "Read more →" link
+- Header (dark), greeting block, N article cards, sign-off block, footer
 
-with smtplib.SMTP("smtp.gmail.com", 587) as smtp:
-    smtp.starttls()
-    smtp.login(settings.MY_EMAIL, settings.MY_EMAIL_APP_PASSWORD)
-    smtp.sendmail(from_addr, to_addr, msg.as_string())
-```
+**`EmailService.send_digest(content, articles, reader_name)`**
+- `smtplib.SMTP` with `STARTTLS` on port 587
+- `ehlo()` → `starttls()` → `ehlo()` → `login()` → `sendmail()` sequence
+- Sends to `MY_EMAIL` (self-send — the newsletter is for the owner)
+- Raises `smtplib.SMTPException` on failure — pipeline decides whether to abort
+
+---
+
+#### `app/services/pipeline.py` — `run_pipeline()`
+
+8-step execution with explicit failure isolation:
+
+| Step | Action | Failure behaviour |
+|---|---|---|
+| 1 | `ScraperService.run_metadata()` | Logged, pipeline continues |
+| 2 | `ScraperService.run_enrichment()` | Logged, pipeline continues |
+| 3 | `DigestService.run_generation()` | Logged, pipeline continues |
+| 4 | `DigestService.run_curation()` | Logged; if no digests, exits gracefully |
+| 5 | Build `EmailArticle` list from top-N curated IDs | Empty list → abort |
+| 6 | `EmailAgent.generate()` | Logged → return (no email sent) |
+| 7 | `EmailService.send_digest()` | Logged → return (**sent_at NOT written**) |
+| 8 | `repo.mark_digests_sent()` + commit | Only reached if step 7 succeeded |
+
+**Key guarantee**: `sent_at` is written only after a confirmed successful send. If SMTP fails, those digests remain unsent and will be picked up tomorrow.
+
+**`_TOP_N = 10`** — constant controlling how many articles go into the email.
+
+---
+
+#### `main.py`
+
+- Configures `logging.basicConfig` to stdout before importing the pipeline
+- Suppresses `httpx`, `httpcore`, `openai`, `urllib3`, `requests` to WARNING level
+- Imports `run_pipeline` inside `main()` so module-level loggers in the app pick up the root handler
+
+---
+
+#### Repository additions (Stage 5)
+
+| Method | Description |
+|---|---|
+| `get_digests_by_ids(ids)` | Fetch `Digest` rows by a list of IDs |
+| `get_source_url(article_id, article_type)` | Look up the URL from the originating source table |
 
 ---
 
